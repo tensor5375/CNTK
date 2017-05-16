@@ -174,6 +174,7 @@ def test_depth_first_search_blocks(depth, prefix_count):
         image_to_vec = Sequential ([
             Convolution((5,5), 32, pad=True),
             MaxPooling((3,3), strides=(2,2)),
+            Dense(10, activation=None),
             Dense(10, activation=None)
             ]
         )

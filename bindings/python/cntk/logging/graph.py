@@ -32,9 +32,8 @@ def depth_first_search(root, visitor, depth=0):
         if node.uid in visited:
             continue
         from cntk import cntk_py
-        dive_into_blocks = 0 < depth or depth == -1
-        if isinstance(node, cntk_py.Function) and node.is_block and \
-                dive_into_blocks:
+        dive_into_blocks = 0 < depth or depth <= -1
+        if isinstance(node, cntk_py.Function) and node.is_block and dive_into_blocks:
             composite = node.block_root
             # BlockFunction node
             mapping = node.block_arguments_mapping

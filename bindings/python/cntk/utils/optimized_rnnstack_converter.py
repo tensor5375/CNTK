@@ -156,9 +156,9 @@ def convert_optimized_rnnstack(cudnn_model):
             converted = _from_optimized_rnnstack(cudnn_rnn)
             map_param_to_func[param] = (converted, cudnn_rnn.inputs[0], cudnn_rnn.output,)
 
-        if cudnn_rnn.output != model.output:
+        if not cudnn_rnn.output in model.outputs:
             model = model.clone(C.CloneMethod.share, {cudnn_rnn.output : converted.output})
         else:
             # if cudnn_rnn output is the model output, just use converted as model and no clone needed
-            model = converted
+            model = C.combine([converted if x == cudnn_rnn.output else x for x in model.outputs])
     return model
