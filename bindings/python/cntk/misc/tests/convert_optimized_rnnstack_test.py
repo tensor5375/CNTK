@@ -31,7 +31,7 @@ def test_convert_optimized_rnnstack(num_layers, bidirectional, recurrent_op, dev
     cudnn_model = C.optimized_rnnstack(dense2, W2, hidden_dim, num_layers=num_layers, bidirectional=bidirectional, recurrent_op=recurrent_op) # test shared parameter W2
     cudnn_out = cudnn_model.eval({input_var:data})
 
-    model = C.utils.convert_optimized_rnnstack(cudnn_model)
+    model = C.misc.convert_optimized_rnnstack(cudnn_model)
 
     # make sure original cudnn model is intact
     cudnn_out2 = cudnn_model.eval({input_var:data})
