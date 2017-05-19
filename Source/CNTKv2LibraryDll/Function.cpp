@@ -650,7 +650,7 @@ namespace CNTK
             Variable clonedInput;
             if (replacements.find(cloneeInput) != replacements.end())
             {
-                clonedInput = PlaceholderLike(cloneeInput);
+                clonedInput = PlaceholderVariable();
                 placeholderReplacements[clonedInput] = replacements.at(cloneeInput);
             }
             else
@@ -710,7 +710,7 @@ namespace CNTK
 
                             if (existingPlaceholderReplacement == placeholderReplacements.end())
                             {
-                                clonedInput = PlaceholderLike(cloneeInput);
+                                clonedInput = PlaceholderVariable();
                                 placeholderReplacements[clonedInput] = cloneeInput;
                             }
                             else
@@ -740,6 +740,15 @@ namespace CNTK
             std::unordered_map<Variable, Variable> cloneeCompositeReplacements;
             std::vector<std::pair<Variable, Variable>> clonedBlockCompositeArgumentsMap;
 
+            // Create blank placeholders in the cloned block's composite to prevent carrying over any old
+            // type information. The type information of the block's placeholders should be derived
+            // afresh from the mappings
+            for (auto cloneeCompositeInput : cloneeCompositeInputs)
+            {
+                if (IsArgument(cloneeCompositeInput))
+                    cloneeCompositeReplacements.insert({ cloneeCompositeInput, PlaceholderVariable() });
+            }
+
             // When cloning the block, we need to replace any Parameter/Constants inside the block with
             // the correspondind replacements if any
             for (size_t i = 0; i < inputs.size(); ++i)
@@ -755,7 +764,7 @@ namespace CNTK
                         Variable replacement = clonedInput;
                         if (IsArgument(replacement))
                         {
-                            replacement = PlaceholderLike(cloneeCompositeInput);
+                            replacement = PlaceholderVariable();
                             clonedBlockCompositeArgumentsMap.push_back({ replacement, inputs[i] });
                         }
 
