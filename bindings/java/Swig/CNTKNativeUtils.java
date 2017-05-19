@@ -27,7 +27,7 @@ public class CNTKNativeUtils {
 
     private static final String manifestName = "NATIVE_MANIFEST";
     private static final String loadManifestName = "NATIVE_LOAD_MANIFEST";
-    private static String OS = System.getProperty("os.name").toLowerCase().split(" ")[0];
+    private static String OS = System.getProperty("os.name").toLowerCase();
     private static String resourcesPath = getResourcesPath();
     private static Boolean extractionDone = false;
     private static File tempDir;
