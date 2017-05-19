@@ -806,16 +806,23 @@ namespace CNTK
         // Handle the scenario when the root Function outputs themselves are specified to be replaced. 
         auto compositeRootFunctionOutputs = compositeRootFunction->RawOutputs();
         std::vector<Variable> rootFunctionOutputReplacements;
+        std::vector<Variable> compositeRootFunctionOutputsReplaced;
         for (auto output : compositeRootFunctionOutputs)
         {
             if (replacements.find(output) != replacements.end())
-                rootFunctionOutputReplacements.push_back(replacements.at(output));
+            {
+                const auto& replacement = replacements.at(output);
+                rootFunctionOutputReplacements.push_back(replacement);
+                compositeRootFunctionOutputsReplaced.push_back(replacement);
+            }
+            else
+                compositeRootFunctionOutputsReplaced.push_back(output);
         }
 
         if (!rootFunctionOutputReplacements.empty())
         {
             if (rootFunctionOutputReplacements.size() != compositeRootFunctionOutputs.size())
-                InvalidArgument("Function '%S': Clone replacements contain some of the root Function's outputs but not all.", AsString().c_str());
+                return Combine(compositeRootFunctionOutputsReplaced);
 
             if (rootFunctionOutputReplacements.size() == 1)
                 return rootFunctionOutputReplacements[0];

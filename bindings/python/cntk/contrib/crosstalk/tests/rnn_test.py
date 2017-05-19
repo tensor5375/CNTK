@@ -101,10 +101,10 @@ def test_cntk_cudnn():
     ci.watch(cudnn_fwbw, 'cntk_birnn_cudnn_out')
 
     ci.assign('cntk_birnn_cudnn', load=True, load_name='birnn')
-    assert ci.compare('cntk_birnn_cudnn_out', compare_name='birnn_out')
+    assert ci.compare('cntk_birnn_cudnn_out', compare_name='birnn_out', rtol=1e-4, atol=1e-6)
 
     ci.fetch('cntk_birnn_cudnn', save=True)
     ci.assign('cntk_birnn_cudnn', load=True)
-    assert ci.compare('cntk_birnn_cudnn_out', compare_name='birnn_out')
+    assert ci.compare('cntk_birnn_cudnn_out', compare_name='birnn_out', rtol=1e-4, atol=1e-6)
 
     ci.reset()

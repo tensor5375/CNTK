@@ -99,15 +99,15 @@ def _from_optimized_rnnstack(cudnn_rnn):
             fw_Wt, fw_Ht, bw_Wt, bw_Ht = np.split(layer_param, _get_cudnn_rnn_weight_splitter(layer_input_size, hidden_size))
             fw_cell = noncudnn_func.find_by_name(rnn_name+'_fw'+layer_name, -1)
             bw_cell = noncudnn_func.find_by_name(rnn_name+'_bw'+layer_name, -1)
-            fw_cell.W.value = _adjust_gate_order(fw_Wt.reshape(num_gates*hidden_size, -1).transpose())
-            fw_cell.H.value = _adjust_gate_order(fw_Ht.reshape(num_gates*hidden_size, -1).transpose())
-            bw_cell.W.value = _adjust_gate_order(bw_Wt.reshape(num_gates*hidden_size, -1).transpose())
-            bw_cell.H.value = _adjust_gate_order(bw_Ht.reshape(num_gates*hidden_size, -1).transpose())
+            fw_cell.W.value = np.ascontiguousarray(_adjust_gate_order(fw_Wt.reshape(num_gates*hidden_size, -1).transpose()))
+            fw_cell.H.value = np.ascontiguousarray(_adjust_gate_order(fw_Ht.reshape(num_gates*hidden_size, -1).transpose()))
+            bw_cell.W.value = np.ascontiguousarray(_adjust_gate_order(bw_Wt.reshape(num_gates*hidden_size, -1).transpose()))
+            bw_cell.H.value = np.ascontiguousarray(_adjust_gate_order(bw_Ht.reshape(num_gates*hidden_size, -1).transpose()))
         else:
             Wt, Ht = np.split(layer_param, _get_cudnn_rnn_weight_splitter(layer_input_size, hidden_size))
             cell = noncudnn_func.find_by_name(rnn_name+'_'+layer_name, -1)
-            cell.W.value = _adjust_gate_order(Wt.reshape(num_gates*hidden_size, -1).transpose())
-            cell.H.value = _adjust_gate_order(Ht.reshape(num_gates*hidden_size, -1).transpose())
+            cell.W.value = np.ascontiguousarray(_adjust_gate_order(Wt.reshape(num_gates*hidden_size, -1).transpose()))
+            cell.H.value = np.ascontiguousarray(_adjust_gate_order(Ht.reshape(num_gates*hidden_size, -1).transpose()))
 
         offset += layer_size
         layer_input_size = hidden_size * multiplier
@@ -132,20 +132,35 @@ def _from_optimized_rnnstack(cudnn_rnn):
         offset += layer_size
 
     return noncudnn_func
-
-def convert_optimized_rnnstack(cudnn_model):
+    
+def _convert_optimized_rnnstack(graph, map_param_to_func):
     '''
-    converts model that contains cudnn optimized_rnnstack to use non-cudnn functions, so it can be used in non-CUDA environment
+    Internal implementation that converts graph that contains cudnn optimized_rnnstack to use non-cudnn functions, so it can be used in non-CUDA environment
 
     Args:
-        cudnn_model: a model that contains optimized_rnnstacks
+        graph: a graph that contains optimized_rnnstacks
+        map_param_to_func: a mapping of converted rnn functions for parameter sharing
     Returns:
-        converted model on GEMM based implementation of rnn that can be used on CPU
+        converted graph on GEMM based implementation of rnn that can be used on CPU
     '''
-    model = cudnn_model.clone(C.CloneMethod.share)
-    cudnn_rnns = C.logging.graph.depth_first_search(model, lambda x : type(x) == C.Function and x.root_function.op_name == 'OptimizedRNNStack', depth=-1)
-    unique_params = set([cudnn_rnn.parameters[0] for cudnn_rnn in cudnn_rnns])
-    map_param_to_func = {p:None for p in unique_params}
+    # recursively convert for blocks in graph
+    blocks = C.logging.graph.depth_first_search(graph, lambda x : type(x) == C.Function and x.root_function.is_block, depth = 0)
+    for block in blocks:
+        block_root = C.as_composite(block.block_root)
+        new_block_root = _convert_optimized_rnnstack(block_root, map_param_to_func)
+        if new_block_root:
+            block_arguments_mapping = dict(block.block_arguments_mapping)
+            new_block_arguments_mapping = []
+            for arg, new_arg in zip(block_root.arguments, new_block_root.arguments):
+                new_block_arguments_mapping += [(new_arg, block_arguments_mapping[arg])]
+            new_block = C.as_block(new_block_root, new_block_arguments_mapping, block.op_name, block.name)
+            graph = graph.clone(C.CloneMethod.share, dict(zip(block.outputs, new_block.outputs)))
+
+    # replace all RNNs in graph
+    cudnn_rnns = C.logging.graph.depth_first_search(graph, lambda x : type(x) == C.Function and x.root_function.op_name == 'OptimizedRNNStack', depth = 0)
+    if len(cudnn_rnns) == 0:
+        return None
+
     for cudnn_rnn in cudnn_rnns:
         param = cudnn_rnn.parameters[0]
         if map_param_to_func[param]:
@@ -156,9 +171,29 @@ def convert_optimized_rnnstack(cudnn_model):
             converted = _from_optimized_rnnstack(cudnn_rnn)
             map_param_to_func[param] = (converted, cudnn_rnn.inputs[0], cudnn_rnn.output,)
 
-        if not cudnn_rnn.output in model.outputs:
-            model = model.clone(C.CloneMethod.share, {cudnn_rnn.output : converted.output})
+        if not cudnn_rnn.output in graph.outputs:            
+            graph = graph.clone(C.CloneMethod.share, {cudnn_rnn.output : converted.output})
         else:
-            # if cudnn_rnn output is the model output, just use converted as model and no clone needed
-            model = C.combine([converted if x == cudnn_rnn.output else x for x in model.outputs])
-    return model
+            # if cudnn_rnn output is the graph output, just use converted as graph and no clone needed
+            if len(graph.outputs) > 1:
+                graph = C.combine([converted if x == cudnn_rnn.output else x for x in graph.outputs])
+            else:
+                graph = converted
+
+    return graph
+
+def convert_optimized_rnnstack(cudnn_model):
+    '''
+    converts model that contains cudnn optimized_rnnstack to use non-cudnn functions, so it can be used in non-CUDA environment
+
+    Args:
+        cudnn_model: a model that contains optimized_rnnstacks
+    Returns:
+        converted model on GEMM based implementation of rnn that can be used on CPU
+    '''
+    # search for all instances of OptimizedRNNStack in model
+    all_cudnn_rnns = C.logging.graph.depth_first_search(cudnn_model, lambda x : type(x) == C.Function and x.root_function.op_name == 'OptimizedRNNStack', depth=-1)
+    unique_params = set([cudnn_rnn.parameters[0] for cudnn_rnn in all_cudnn_rnns])
+    map_param_to_func = {p:None for p in unique_params}
+
+    return _convert_optimized_rnnstack(cudnn_model, map_param_to_func)
